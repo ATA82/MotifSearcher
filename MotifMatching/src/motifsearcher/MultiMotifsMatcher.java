@@ -1,0 +1,148 @@
+package motifsearcher;
+import java.util.Vector;
+
+import motifsearcher.matches.Match;
+
+/**
+ * This class uses the atomic matcher to compute matches of multiple motifs.
+ * 
+ * @author Ali T. Abdallah
+ * @since jdk1.8
+ * @version 08.05.2020
+ */
+
+public class MultiMotifsMatcher {
+
+	
+	String id;
+	String transcript;
+	int shift;
+	int[] limits;
+	String[] motifs;
+	Vector<AtomicMotifMatcher> mms;
+	String biotype;
+	
+	public MultiMotifsMatcher(String id, String transcript, int shift, int[] limits, String... motifs) {
+		super();
+		this.id = id;
+		this.transcript = transcript;
+		this.shift = shift;
+		this.limits = limits;
+		this.motifs = motifs;
+		mms = new Vector<AtomicMotifMatcher>();
+	}
+	
+	public MultiMotifsMatcher(String id, String biotype, String transcript, int shift, int[] limits, String... motifs) {
+		super();
+		this.id = id;
+		this.transcript = transcript;
+		this.shift = shift;
+		this.limits = limits;
+		this.motifs = motifs;
+		this.biotype=biotype;
+		mms = new Vector<AtomicMotifMatcher>();
+	}
+
+
+	public void run() {
+		for(int i = 0; i < motifs.length; i++) {
+			AtomicMotifMatcher mm = new AtomicMotifMatcher(id, transcript, motifs[i], limits[i], shift);
+			mm.run();
+			mms.add(mm);
+		}
+		
+	}
+
+	public String toString() {
+		String mtranscript = transcript.toLowerCase();
+		for(AtomicMotifMatcher mm: mms) {
+			for(Match m: mm.matches) {
+				mtranscript = mtranscript.substring(0,m.getStart()+4)+
+						mtranscript.substring(m.getStart()+4, m.getStart()+4+m.getLength()-1).toUpperCase()+
+						mtranscript.substring(m.getStart()+4+m.getLength()-1);
+			}
+		}
+		
+		String tmp = "";
+		int consumed = 0;
+		while(consumed <= mtranscript.length()) {
+			tmp += mtranscript.substring(consumed,Math.min(consumed+60,mtranscript.length()))+"\n";
+			consumed += 60;
+		}
+		
+		return tmp;
+	}
+	
+	public String toString(String...motifs) {
+		String report = "";
+		for(AtomicMotifMatcher mm: mms) {
+			report+=","+mm.nr_no_overlap_matches;
+		}
+		report+=" ";
+		int i = 0;
+		for(AtomicMotifMatcher mm: mms) {
+			report+=motifs[i++]+":"+mm+" ";
+		}
+		
+		return report;
+	}
+	
+	public static void main(String[] args) {
+		String transcript1 = 
+				  "ATGGAGTCGGCCGACTTCTACGAGGCGGAGCCGCGGCCCCCGATGAGCAGCCACCTGCA"
+				+ "GAGCCCCCCGCACGCGCCCAGCAGCGCCGCCTTCGGCTTTCCCCGGGGCGCGGGCCCCGCGCAGCCT"
+				+ "CCCGCCCCACCTGCCGCCCCGGAGCCGCTGGGCGGCATCTGCGAGCACGAGACGTCCATCGACATCA"
+				+ "GCGCCTACATCGACCCGGCCGCCTTCAACGACGAGTTCCTGGCCGACCTGTTCCAGCACAGCCGGCA"
+				+ "GCAGGAGAAGGCCAAGGCGGCCGTGGGCCCCACGGGCGGCGGCGGCGGCGGCGACTTTGACTACCCG"
+				+ "GGCGCGCCCGCGGGCCCCGGCGGCGCCGTCATGCCCGGGGGAGCGCACGGGCCCCCGCCCGGCTACG"
+				+ "GCTGCGCGGCCGCCGGCTACCTGGACGGCAGGCTGGAGCCCCTGTACGAGCGCGTCGGGGCGCCGGC"
+				+ "GCTGCGGCCGCTGGTGATCAAGCAGGAGCCCCGCGAGGAGGATGAAGCCAAGCAGCTGGCGCTGGCC"
+				+ "GGCCTCTTCCCTTACCAGCCGCCGCCGCCGCCGCCGCCCTCGCACCCGCACCCGCACCCGCCGCCCG"
+				+ "CGCACCTGGCCGCCCCGCACCTGCAGTTCCAGATCGCGCACTGCGGCCAGACCACCATGCACCTGCA"
+				+ "GCCCGGTCACCCCACGCCGCCGCCCACGCCCGTGCCCAGCCCGCACCCCGCGCCCGCGCTCGGTGCC"
+				+ "GCCGGCCTGCCGGGCCCTGGCAGCGCGCTCAAGGGGCTGGGCGCCGCGCACCCCGACCTCCGCGCGA"
+				+ "GTGGCGGCAGCGGCGCGGGCAAGGCCAAGAAGTCGGTGGACAAGAACAGCAACGAGTACCGGGTGCG"
+				+ "GCGCGAGCGCAACAACATCGCGGTGCGCAAGAGCCGCGACAAGGCCAAGCAGCGCAACGTGGAGACG"
+				+ "CAGCAGAAGGTGCTGGAGCTGACCAGTGACAATGACCGCCTGCGCAAGCGGGTGGAACAGCTGAGCC"
+				+ "GCGAACTGGACACGCTGCGGGGCATCTTCCGCCAGCTGCCAGAGAGCTCCTTGGTCAAGGCCATGGG"
+				+ "CAACTGCGCGTGA";
+		
+		@SuppressWarnings("unused")
+		String transcript2 = "GGCGCGCGGCTGTGGGACCGCCCTGGGCCAGCCTCCGGCGGGGACCCAGGGAGTGGTTTGGGGT"
+				+ "CGCCGGATCTCGAGGCTTGCCCGAGCCGTGCGAGCCAGGACTAGGAGATTCCGGTGCCTCCTGAAAG"
+				+ "CCTGGCCTGCTCCGCGTGTCCCCTCCCTTCCTCTGCGCCGGACTTGGTGCGTCTAAGATGAGGGGGC"
+				+ "CAGGCGGTGGCTTCTCCCTGCGAGGAGGGGAGAATTCTTGGGGCTGAGCTGGGAGCCCGGCAACTCT"
+				+ "AGTATTTAGGATAACCTTGTGCCTTGGAAATGCAAACTCACCGCTCCAATGCCTACTGAGTAGGGGG"
+				+ "AGCAAATCGTGCCTTGTCATTTTATTTGGAGGTTTCCTGCCTCCTTCCCGAGGCTACAGCAGACCCC"
+				+ "CATGAGAGAAGGAGGGGAGCAGGCCCGTGGCAGGAGGAGGGCTCAGGGAGCTGAGATCCCGACAAGC"
+				+ "CCGCCAGCCCCAGCCGCTCCTCCACGCCTGTCCTTAGAAAGGGGTGGAAACATAGGGACTTGGGGCT"
+				+ "TGGAACCTAAGGTTGTTCCCCTAGTTCTACATGAAGGTGGAGGGTCTCTAGTTCCACGCCTCTCCCA"
+				+ "CCTCCCTCCGCACACACCCCACCCCAGCCTGCTATAGGCTGGGCTTCCCCTTGGGGCGGAACTCACT"
+				+ "GCGATGGGGGTCACCAGGTGACCAGTGGGAGCCCCCACCCCGAGTCACACCAGAAAGCTAGGTCGTG"
+				+ "GGTCAGCTCTGAGGATGTATACCCCTGGTGGGAGAGGGAGACCTAGAGATCTGGCTGTGGGGCGGGC"
+				+ "ATGGGGGGTGAAGGGCCACTGGGACCCTCAGCCTTGTTTGTACTGTATGCCTTCAGCATTGCCTAGG"
+				+ "AACACGAAGCACGATCAGTCCATCCCAGAGGGACCGGAGTTATGACAAGCTTTCCAAATATTTTGCT"
+				+ "TTATCAGCCGATATCAACACTTGTATCTGGCCTCTGTGCCCCAGCAGTGCCTTGTGCAATGTGAATG"
+				+ "TGCGCGTCTCTGCTAAACCACCATTTTATTTGGTTTTTGTTTTGTTTTGGTTTTGCTCGGATACTTG"
+				+ "CCAAAATGAGACTCTCCGTCGGCAGCTGGGGGAAGGGTCTGAGACTCCCTTTCCTTTTGGTTTTGGG"
+				+ "ATTACTTTTGATCCTGGGGGACCAATGAGGTGAGGGGGGTTCTCCTTTGCCCTCAGCTTTCCCCAGC"
+				+ "CCCTCCGGCCTGGGCTGCCCACAAGGCTTGTCCCCCAGAGGCCCTGGCTCCTGGTCGGGAAGGGAGG"
+				+ "TGGCCTCCCGCCAACGCATCACTGGGGCTGGGAGCAGGGAAGGACGGCTTGGTTCTCTTCTTTTGGG"
+				+ "GAGAACGTAGAGTCTCACTCTAGATGTTTTATGTATTATATCTATAATATAAACATATCAAAGTCAA";
+		
+		String transcript3 = "TATAAAAGCTGGGCCGGCGCGGGCCGGGCCATTCGCGACCCGGAGGTGCGCGGGCGCGGGCGAG"
+				+ "CAGGGTCTCCGGGTGGGCGGCGGCGACGCCCCGCGCAGGCTGGAGGCCGCCGAGGCTCGCCATGCCG"
+				+ "GGAGAACTCTAACTCCCCC";
+		
+		int[] limits = {19, 38};
+		MultiMotifsMatcher mms = new MultiMotifsMatcher("CEBPA", transcript1, 0, limits, "[TC]CCC.*[TC]CCC", "[TC]CCC.*[TC]CCC.*[TC]CCC.*[TC]CCC");
+		mms.run();
+		
+		System.out.println(mms.toString("[TC]CCC.*[TC]CCC", "[TC]CCC.*[TC]CCC.*[TC]CCC.*[TC]CCC")+"\n"+
+		mms.toString());
+		
+		System.out.println(transcript3.toLowerCase());
+		
+	}
+	
+}
