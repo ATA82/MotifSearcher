@@ -7,7 +7,7 @@ HNRNPK is part of the minimally deleted region (MDR) in AML del(9q). To understa
 
 ## Installing / Getting started
 
-Software requirements:
+**Software requirements:**</BR>
 To run the R markdowns you need the following R-Libraries:</BR>
 1. biomaRt
 2. DT
