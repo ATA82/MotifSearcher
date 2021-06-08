@@ -4,7 +4,7 @@ author:
   affiliation: Interdisciplinary Center for Clinical Research - RWTH-Aachen
   name: Ali T. Abdallah
   fontsize: 15pt
-date: "09.03.2020"
+date: "08.06.2021"
 output: 
   html_notebook:
   highlight: kate
@@ -107,6 +107,11 @@ color:#000080
 ```{r setup, echo=F}
 library(biomaRt)
 library(DT)
+library(genefilter)
+library(tidyverse)
+library(ggplot2)
+library(ggseqlogo)
+library(cowplot)
 ```
 ```{r config, echo=F}
 DEBUG <- F
