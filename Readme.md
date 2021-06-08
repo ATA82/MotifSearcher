@@ -5,10 +5,16 @@
 
 HNRNPK is part of the minimally deleted region (MDR) in AML del(9q). To understand the function of hnRNP K in pathogenesis of this AML subtype, we analyzed the function of hnRNP K as an RNA binding protein in myeloid cells. Co-immunoprecipitated RNAs from hnRNP K and non-related control immunoprecipitation as well as input RNA were subjected to next generation sequencing. This analysis revealed an specific interaction of hnRNP K with 1076 RNAs, among them many mRNAs encoding transcription factors involved in myeloid differentiation and AML pathogenesis.
 
+
 ## Installing / Getting started
 
-Software requirements:
-To run the R markdowns you need the following R-Libraries:</BR>
+**Software requirements:**</BR>
+
+**1. Java**</BR>
+Java 8
+
+**2. R**</BR>
+To run the R markdowns you need, besides the core installation of R 4.0, the following R-Libraries:</BR>
 1. biomaRt
 2. DT
 3. genefilter
@@ -20,20 +26,22 @@ To run the R markdowns you need the following R-Libraries:</BR>
 9. RColorBrewer
 10. svglite
 
+## Usage instructions
+### 1. Running Downstream analysis
 
-## Running MotifSearcher
+### 2. Running MotifSearcher
 The first step is to take the 1076 transcripts and perform Motif matching using our MotifSearcher program. In the following,</BR>
 we print the help section of the program, describing its usage.
 
 ```shell
-    ===========  __  __       _   _  __ _____                     _               
-        =====  	|  \/  |     | | (_)/ _/ ____|                   | |              
-         =====	| \  / | ___ | |_ _| || (___   ___  __ _ _ __ ___| |__   ___ _ __ 
- 	    =====	| |\/| |/ _ \| __| |  _\___ \ / _ \/ _` | '__/ __| '_ \ / _ \ '__|
-        =====	| |  | | (_) | |_| | | ____) |  __/ (_| | | | (__| | | |  __/ |   
- 	      ===== |_|  |_|\___/ \__|_|_||_____/ \___|\__,_|_|  \___|_| |_|\___|_|   
-    ===========
-      v 0.1.0
+            ===========  __  __       _   _  __ _____                     _               
+              =====  	|  \/  |     | | (_)/ _/ ____|                   | |              
+               =====	| \  / | ___ | |_ _| || (___   ___  __ _ _ __ ___| |__   ___ _ __ 
+ 	        =====	| |\/| |/ _ \| __| |  _\___ \ / _ \/ _` | '__/ __| '_ \ / _ \ '__|
+                 =====	| |  | | (_) | |_| | | ____) |  __/ (_| | | | (__| | | |  __/ |   
+ 	          ===== |_|  |_|\___/ \__|_|_||_____/ \___|\__,_|_|  \___|_| |_|\___|_|   
+            ===========
+              v 0.1.0
 
 MotifMatching (0.1.0) 
 Copyright (c) 2020 Ali T. Abdallah, All rights reserved.
@@ -68,6 +76,8 @@ m   A list of regular expressions defining the motifs to search for.
 	  motif having a size less than 19 and all instances having a size less
 	  than 38.";
 ```
+### 3. Running SequenceLogoGenerator script
+
 
 Here you should say what actually happens when you execute the code above.
 
