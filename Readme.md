@@ -10,10 +10,10 @@ HNRNPK is part of the minimally deleted region (MDR) in AML del(9q). To understa
 
 **Software requirements:**</BR>
 
-**1. Java**
+**1. Java**</BR>
 Java 8
 
-**2. R**
+**2. R**</BR>
 To run the R markdowns you need, besides the core installation of R 4.0, the following R-Libraries:</BR>
 1. biomaRt
 2. DT
