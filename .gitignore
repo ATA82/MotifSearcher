@@ -1,8 +1,5 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
 .html
 .htm
-Reports/*.html
+.Reports/*.html
 .HTML
+
