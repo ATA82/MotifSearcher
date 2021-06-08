@@ -1,0 +1,276 @@
+
+library(DESeq2)
+library(ggplot2)
+library(svglite)
+library(RColorBrewer)
+library(cowplot)
+
+
+counts <- read.table("Paper/Data/counts.tsv", sep="\t", header=T)
+
+colData <- data.frame(condition=c( rep("InputKG1a",3), rep("IPhnRNPK",3), rep("IPCtrl",3) ))
+rownames(colData) <- c(
+  "InputKG1a","InputKG1a_2","InputKG1a_3",
+  "IPhnRNPK","IPhnRNPK_2","IPhnRNPK_3",
+  "IPCtrl","IPCtrl_2","IPCtrl_3"
+)
+
+colData <- as.data.frame(colData)
+colnames(colData) <- "condition"
+rownames(colData) <- c(
+  "InputKG1a","InputKG1a_2","InputKG1a_3",
+  "IPhnRNPK","IPhnRNPK_2","IPhnRNPK_3",
+  "IPCtrl","IPCtrl_2","IPCtrl_3"
+)
+
+
+
+rownames(counts) <- counts$Ensembl_Gene_ID
+all <- counts[, rownames(colData)]
+
+all <- all[, colnames(all) %in% rownames(colData)]
+vars_explained <- c("52%", "39%")
+
+DEA <- DESeq2::DESeqDataSetFromMatrix(countData = all, colData = colData, design = ~condition)
+DEA <- DESeq2::DESeq(DEA, fitType = "local")
+vsd <- DESeq2::vst(DEA)
+
+title <- "Table of raw transcript counts"
+DT::datatable(as.data.frame(counts), rownames = F, filter = 'top', caption = title, extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy', title=paste(gsub(title, pattern = " ", replacement = "_"), "_raw.counts",sep="")), list(extend='csv',title=paste(gsub(title, pattern = " ", replacement = "_"), "_raw.counts",sep="")), list(extend='excel',filename=paste(gsub(title, pattern = " ", replacement = "_"), "_raw.counts",sep="")), list(extend='pdf',filename=paste(gsub(title, pattern = " ", replacement = "_"), "_raw.counts",sep="")), list(extend='print',filename=paste(gsub(title, pattern = " ", replacement = "_"), "_raw.counts",sep=""))), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+
+
+
+pca <- DESeq2::plotPCA(vsd)
+colData$condition <- stringr::str_trim(as.character(colData$condition))
+pca$data$condition <- stringr::str_trim(as.character( pca$data$condition))
+colData$name <- rownames(colData)
+pca$data <- merge(pca$data, colData, by=c("name","condition"))
+stddev <- as.data.frame(apply(pca$data[,c("PC1", "PC2")], 2, var))
+stddev_PC1 <- 100*stddev["PC1",]/sum(stddev)
+stddev_PC2 <- 100*stddev["PC2",]/sum(stddev)
+#pca <- prcomp(assay(vsd), retx=T)
+#vars_transformed <- 100*pca$sdev/sum(pca$sdev)
+
+
+pca$data$adj.samples <- ifelse(pca$data$name=="IPCtrl", "IPCtrl\n(excluded)", pca$data$name)
+pca <- ggplot2::ggplot(pca$data , aes(x=PC1, y=PC2, color=condition, label=adj.samples)) + geom_point(size=3) + ggpubr::theme_pubr() + 
+  labs(title="PCA plot", subtitle="IPhnRNPK, InputKG1a and IPCtrl") +
+  theme(plot.title = element_text(hjust = 0.5, face="bold"), plot.subtitle = element_text(hjust=0.5, size=11,face = "bold", colour = "#000080")) + ggrepel::geom_text_repel() + 
+  xlab(paste("PC1 (", vars_explained[1], " variance)", sep=""))  +
+  ylab(paste("PC2 (", vars_explained[2], " variance)", sep=""))
+
+vsd <- vst(DEA, blind = F)
+sampleDists <- dist(t(assay(vsd)), method = "euclidean", upper=F)
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- rownames(colData)
+colnames(sampleDistMatrix) <- rownames(colData)
+colors <- colorRampPalette( (brewer.pal(6, "RdYlBu")) )(255)
+hm <- pheatmap::pheatmap( sampleDistMatrix, clustering_distance_rows=sampleDists, border_color = "white", 
+                          clustering_distance_cols=sampleDists, scale = "none", col=colors)
+hm <- ggplotify::as.ggplot(hm) + theme(plot.title = element_text(hjust = 0.5, face="bold")) 
+
+RNASeq_Quality_Plots <- plot_grid(hm  + theme(plot.subtitle = element_text(hjust=0.5, face = "bold", colour = "#000080")) +
+                                    labs(title="Sample Similarity Heatmap", subtitle="IPhnRNPK, InputKG1a and IPCtrl"),
+                                  plot_grid(pca, ggplot()+theme_void(), rel_heights = c(17,1), ncol=1),
+                                  rel_widths = c(7,6))
+
+ggplot2::ggsave(file="Paper/Data/RNASeq_Quality_Plots.svg", plot=RNASeq_Quality_Plots, width=13, height=7)
+pdf(file = "Paper/Data/RNASeq_Quality_Plots.pdf",   # The directory you want to save the file in
+    width = 13, # The width of the plot in inches
+    height = 7) # The height of the plot in inches
+# Step 2: Create the plot with R code
+RNASeq_Quality_Plots
+# Step 3: Run dev.off() to create the file!
+dev.off()
+
+RNASeq_Quality_Plots
+
+colDatas <- vector("list", 2)
+colData$samples <- rownames(colData)
+colDatas[[1]] <- colData[colData$condition %in% c("IPhnRNPK", "InputKG1a"),]
+colDatas[[2]] <- colData[colData$condition %in% c("IPhnRNPK", "IPCtrl"),]
+
+countDatas <- vector("list",2)
+DDS <- vector("list", 2)
+vsd <- vector("list", 2)
+DEG <- vector("list", 2)
+library(ggplot2)
+
+references <- c("InputKG1a","IPCtrl")
+vars_explained <- list(c("94%", "3%"), c("83%", "12%"))
+for(p in 1:2){
+  colDatas[[p]]$condition <- as.factor(colDatas[[p]]$condition)
+  countDatas[[p]] <- all[,c(rownames(colDatas[[p]]))]
+  countDatas[[p]]$gene_id <- NULL
+  
+  
+  DDS[[p]] <- DESeq2::DESeqDataSetFromMatrix(countData = countDatas[[p]], colData = colDatas[[p]], design = ~condition)
+  DDS[[p]]$condition <- relevel(DDS[[p]]$condition, ref = references[p])
+  DDS[[p]] <- DESeq2::DESeq(DDS[[p]], fitType="local", betaPrior = FALSE)
+  DEG[[p]] <- DESeq2::results(DDS[[p]])
+}
+
+pcas <- vector("list", 2)
+dispEstsPlot <- vector("list", 2)
+for(p in 1:2){
+  vsd[[p]] <- DESeq2::vst(DDS[[p]])
+  pcas[[p]] <- DESeq2::plotPCA(vsd[[p]])
+  
+  print(pcas[[p]])
+  
+  colDatas[[p]]$condition <- stringr::str_trim(as.character(colDatas[[p]]$condition))
+  pcas[[p]]$data$condition <- stringr::str_trim(as.character( pcas[[p]]$data$condition))
+  colDatas[[p]]$name <- rownames(colDatas[[p]])
+  pcas[[p]]$data <- merge(pcas[[p]]$data, colDatas[[p]], by=c("name","condition"))
+  
+  stddev <- as.data.frame(apply(pcas[[p]]$data[,c("PC1", "PC2")], 2, var))
+  stddev_PC1 <- 100*stddev["PC1",]/sum(stddev)
+  stddev_PC2 <- 100*stddev["PC2",]/sum(stddev)
+  
+  pca <- prcomp(assay(vsd[[p]]), retx=T)
+  vars_transformed <- 100*pca$sdev/sum(pca$sdev)
+  
+  pcas[[p]]$data$adj.samples <- ifelse(pcas[[p]]$data$samples=="IPCtrl", "IPCtrl (exluded)", pcas[[p]]$data$samples)
+  
+  #dispEstsPlot[[p]] <- DESeq2::plotDispEsts(DDS[[p]])
+  pcas[[p]] <- ggplot2::ggplot(pcas[[p]]$data , aes(x=PC1, y=PC2, color=condition, label=adj.samples)) + geom_point(size=3) + ggpubr::theme_pubr() + 
+    ggtitle(paste(unique(colDatas[[p]]$condition)[1], " vs. ", unique(colDatas[[p]]$condition)[2], sep="")) + 
+    theme(plot.title = element_text(hjust = 0.5, face="bold")) + ggrepel::geom_label_repel() + 
+    xlab(paste("PC1 (", vars_explained[[p]][1], ")", sep=""))  +
+    ylab(paste("PC2 (", vars_explained[[p]][2], ")", sep=""))
+}
+
+
+library(cowplot)
+do.call("plot_grid", c(pcas, ncol=2))
+ma_plots <- vector("list", 2)
+
+Genes <- read.table("~/Desktop/work/RProjects/Data/Genes.HomoSapiens.gtf", sep="\t")
+Genes <- Genes[,9]
+Genes <- stringr::str_split(Genes, ";")
+
+Gene.Names <- vector("list", length(Genes))
+Gene.Ids <- vector("list", length(Genes))
+
+for(g in 1:length(Gene.Names)){
+  Gene.Names[[g]] <- stringr::str_trim(Genes[[g]][3])
+  Gene.Ids[[g]] <- stringr::str_trim(Genes[[g]][1])
+}
+Gene.Names <- unlist(Gene.Names)
+Gene.Names <- gsub(Gene.Names, pattern = "gene_name ", replacement = "")
+Gene.Ids <- unlist(Gene.Ids)
+Gene.Ids <- gsub(Gene.Ids, pattern = "gene_id ", replacement = "")
+names(Gene.Names) <- Gene.Ids
+
+min <- Inf
+max <- -Inf
+
+for(p in 1:2){
+  DEG[[p]] <- as.data.frame(DEG[[p]])
+  curr.min <- min((na.omit(DEG[[p]])[na.omit(DEG[[p]])$padj <=0.05,])$log2FoldChange)
+  curr.max <- max((na.omit(DEG[[p]])[na.omit(DEG[[p]])$padj <=0.05,])$log2FoldChange)
+  if(curr.min < min){
+    min <- curr.min
+  }
+  if(curr.max > max){
+    max <- curr.max
+  }
+}
+
+
+DEG.ext <- vector("list", 2)
+pair_ids <- c(3822,3838)
+for(p in 1:2){
+  
+  table <- read.table(paste("/nextgen/scratch/nextgen/runs/rnaseq.119/5_DEseq/",pair_ids[p],"/",pair_ids[p],".differential.txt", sep=""), header=T, sep="\t")
+  
+  DEG.ext[[p]] <- as.data.frame(table)
+  DEG.ext[[p]] <- na.omit(DEG.ext[[p]])
+  DEG.ext[[p]] <-   DEG.ext[[p]][order(DEG.ext[[p]]$padj), ] 
+  rownames(DEG.ext[[p]]) <- DEG.ext[[p]]$id
+  
+  DEG.ext[[p]]$symbol <- as.character(Gene.Names[stringr::str_trim(rownames(DEG.ext[[p]]))])
+  # DEG.ext[[p]] <- DEG.ext[[p]][DEG.ext[[p]]$baseMeanControl >= 100, ]
+  #diff_express$symbol <- as.character(Gene.Namesss[rownames(diff_express)])
+  ma_plots[[p]] <- (ggpubr::ggmaplot(DEG.ext[[p]], alpha = 0.5, main = ,
+                                     fdr = 0.01, fc = 2, size = 1,
+                                     palette = c("#B31B21", "#1465AC", "darkgray"),
+                                     genenames = as.vector(DEG.ext[[p]]$symbol),
+                                     legend = "top", top = 10, select.top.method = "padj", 
+                                     font.label = c("bold", 11), label.rectangle = F,
+                                     font.legend = "bold",
+                                     font.main = "bold",
+                                     ggtheme = ggplot2::theme_minimal()) + ylim(min,max)) + 
+    theme(plot.title = element_text(hjust = 0.5, face="bold"))
+  
+}
+
+do.call("plot_grid", c(ma_plots, ncol=2))
+
+
+ma_plots[[1]] + ggtitle(paste(unique(colDatas[[1]]$condition)[1], " vs. ", unique(colDatas[[1]]$condition)[2], sep=""))
+ma_plots[[2]] + ggtitle(paste(unique(colDatas[[2]]$condition)[1], " vs. ", unique(colDatas[[2]]$condition)[2], sep=""))
+
+p <- 1
+df <- DEG.ext[[p]]
+df$EnsemblID <- rownames(df)
+title <- (paste(unique(colDatas[[p]]$condition)[1], " vs. ", unique(colDatas[[p]]$condition)[2], sep=""))
+DT::datatable(as.data.frame(df), rownames = F, filter = 'top', caption = title, extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title=paste(title,"_DEG",sep="")),list(extend='csv',title=paste(title,"_DEG",sep="")),list(extend='excel',filename=paste(title,"_DEG",sep="")),list(extend='pdf',filename=paste(title,"_DEG",sep="")),list(extend='print',filename=paste(title,"_DEG",sep=""))), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+
+
+p <- 2
+df <- DEG.ext[[p]]
+df$EnsemblID <- rownames(df)
+title <- (paste(unique(colDatas[[p]]$condition)[1], " vs. ", unique(colDatas[[p]]$condition)[2], sep=""))
+DT::datatable(as.data.frame(df), rownames = F, filter = 'top', caption = title, extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title=paste(title,"_DEG",sep="")),list(extend='csv',title=paste(title,"_DEG",sep="")),list(extend='excel',filename=paste(title,"_DEG",sep="")),list(extend='pdf',filename=paste(title,"_DEG",sep="")),list(extend='print',filename=paste(title,"_DEG",sep=""))), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+
+
+target_RNAs <- read.table("allTargetRNAs.csv", sep="\t", header=T, check.names = F)
+
+all.target.RNAs <- as.data.frame(results(DEA))
+whole.table <- all.target.RNAs[stringr::str_trim(rownames(all.target.RNAs)) %in% target_RNAs$EnsemblID & all.target.RNAs$padj <= 0.05 & all.target.RNAs$log2FoldChange >= 1,]
+whole.table$EnsemblID <- rownames(whole.table)
+target_RNAs$log2FoldChange <- log2(as.numeric(gsub(pattern = ",", replacement = ".", target_RNAs$FoldChange)))
+target_RNAs <- target_RNAs[, c(1,ncol(target_RNAs),2:(ncol(target_RNAs)-1))]
+target_RNAs <- (target_RNAs[order(-target_RNAs$log2FoldChange),])
+whole.table <- whole.table[order(-whole.table$log2FoldChange),]
+
+target_RNAs$pValue <- whole.table$padj
+target_RNAs$log2FoldChange <- whole.table$log2FoldChange
+
+target_RNAs <- target_RNAs[, c(1,15,2:ncol(target_RNAs))]
+whole.table
+
+table <- read.table("/nextgen/scratch/nextgen/runs/rnaseq.119/5_DEseq/3822/3822.differential.txt", header=T, sep="\t")
+table <- table[table$id %in% target_RNAs$EnsemblID,]
+
+target_RNAs <- target_RNAs[order(target_RNAs$EnsemblID),]
+table <- table[order(table$id),]
+table$EnsemblID <- table$id
+table.red <- table[, c("EnsemblID", "padj")]
+
+target_RNAs <- merge(target_RNAs, table.red, by="EnsemblID")
+target_RNAs$pValue <- target_RNAs$padj
+target_RNAs$padj <- NULL
+target_RNAs <- target_RNAs[order(target_RNAs$Biotype, target_RNAs$pValue),]
+target_RNAs <- target_RNAs[,c(2,1,15,3:6,7:14, 16:ncol(target_RNAs))]
+
+write.table(target_RNAs, file = "Paper/Data/Supplementary Table 6 - List of identified target RNAs 2020-05-12.tsv", quote = F, sep = "\t")
+
+table_1 <- read.table("/nextgen/scratch/nextgen/runs/rnaseq.119/5_DEseq/3822/3822.differential.txt", header=T, sep="\t")
+table_1$symbol <- as.character(Gene.Names[stringr::str_trim(table_1$id)])
+table_2 <- read.table("/nextgen/scratch/nextgen/runs/rnaseq.119/5_DEseq/3838/3838.differential.txt", header=T, sep="\t")
+table_2$symbol <- as.character(Gene.Names[stringr::str_trim(table_2$id)])
+
+#table_1 <- table_1[table_1$baseMeanControl >= 100 & table_1$log2FoldChange >= 2 & table_1$padj <= 0.05,]
+#table_2 <- table_2[table_2$baseMeanControl >= 100 & table_2$log2FoldChange >= 2 & table_2$padj <= 0.05,]
+
+genes <- c("CEBPA", "RUNX3", "CCNK", "TLE5", "HOMEZ", "RARA", "JUND", "SPI1", "GAPDH")
+
+na.omit(table_1[table_1$symbol %in% genes,])
+na.omit(table_2[table_2$symbol %in% genes,])
+
+sessionInfo()
+
+
+

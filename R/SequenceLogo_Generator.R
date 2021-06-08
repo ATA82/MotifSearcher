@@ -1,0 +1,816 @@
+
+                  
+                  
+
+                library(biomaRt)
+                library(DT)
+                library(genefilter)
+                library(tidyverse)
+                library(ggplot2)
+                library(ggseqlogo)
+                library(cowplot)
+                
+                DEBUG <- F
+                LOCAL_MOUNT_POINT  <- "/nextgen"
+                REMOTE_MOUNT_POINT <- ""
+                PATH_MOUNT_PREFIX  <- paste(LOCAL_MOUNT_POINT,"/",REMOTE_MOUNT_POINT, sep="")
+                BATCH_PATHS <- list("scratch/data/projects/devries/tables_200911", "scratch/data/projects/devries/tables_200911") 
+                SAMPLE_NAME_PREFIX <- "SummarizedMatchTable_GFiltered_"
+                BATCH.NAMES <- c("mrna", "ncrna")
+                SAMPLE_BATCHES <- list(c("mrna"), c("ncrna"))
+                mRNA <- 1
+                ncRNA <- 2
+                ColorCombo53 <- c("#028482", "#7ABA7A","#B76EB8") 
+                genes <- read.table("Genes", header=T, sep = "\t")
+                genes.old <- read.table("devries_geneList.txt", header=T, sep = "\t")
+                genes$GENE_SYMBOL
+
+                
+       
+                sample_ids <- list("1934", "1938", "1942", "1932", "1936", "1940")
+                names(sample_ids) <- c("IPhnRNPK", "IPhnRNPK_2", "IPhnRNPK_3", "InputKG1a", "InputKG1a_3", "InputKG1a_2")
+                fpkm_list <- vector("list", length(sample_ids))
+                for(i in 1:length(sample_ids)){
+                  fpkm_list[[i]] <- read.table(paste("/nextgen/scratch/nextgen/runs/rnaseq.119/3_cufflinks/",sample_ids[[i]],"/isoforms.fpkm_tracking", sep=""), header=T, sep="\t")
+                }
+                for(i in 1:length(sample_ids)){
+                  fpkm_list[[i]] <-   fpkm_list[[i]][,c("t_name", "gene_id", "gene_name", "FPKM", "cov")]
+                  colnames(fpkm_list[[i]]) <- c("t_name", "gene_id", "gene_name", paste("FPKM.",names(sample_ids)[i],sep=""), paste("COV.",names(sample_ids)[i],sep=""))
+                }
+                library(genefilter)
+                library(tidyverse)
+                fpkm_table <- fpkm_list %>% purrr::reduce(left_join, by = c("t_name", "gene_id", "gene_name"))
+                fpkm_table.filtered <- fpkm_table[(fpkm_table$COV.IPhnRNPK >= 1 & fpkm_table$COV.IPhnRNPK_2 >= 1 & fpkm_table$COV.IPhnRNPK_3 >= 1 & fpkm_table$FPKM.IPhnRNPK >= 1 & fpkm_table$FPKM.IPhnRNPK_2 >= 1 & fpkm_table$FPKM.IPhnRNPK_3 >= 1) ,]
+                
+                # (fpkm_table$COV.InputKG1a >= 1 & fpkm_table$COV.InputKG1a_2 >= 1 & fpkm_table$COV.InputKG1a_3 >= 1 & fpkm_table$FPKM.InputKG1a >= 1 & fpkm_table$FPKM.InputKG1a_2 >= 1 & fpkm_table$FPKM.InputKG1a_3 >= 1)
+                
+                fpkm_table.filtered <- fpkm_table.filtered[fpkm_table.filtered$gene_name %in% genes$GENE_SYMBOL | fpkm_table.filtered$gene_id %in% genes$GENE_SYMBOL,]
+                colnames(fpkm_table.filtered)[1:3] <- c("ensembl_transcript_id", "ensembl_gene_id", "hgnc_symbol")
+                
+                fpkm_table.filtered <- fpkm_table.filtered[, c(1,2,3,4,6,8,10,12,14,5,7,9,11,13,15)]
+                fpkm_table.filtered$meanHnRNPK <- rowMeans(fpkm_table.filtered[,4:6])
+                fpkm_table.filtered$meanInputKG1a <- rowMeans(fpkm_table.filtered[,7:9])
+                fpkm_table.filtered$stdDevHnRNPM <- rowSds(as.matrix(fpkm_table.filtered[,4:6]))
+                fpkm_table.filtered$stdDevInputKG1a <- rowSds(as.matrix(fpkm_table.filtered[,7:9]))
+                fpkm_table.filtered$L2FC <- log2(fpkm_table.filtered$meanHnRNPK/(1+fpkm_table.filtered$meanInputKG1a))
+                fpkm_table.filtered <- fpkm_table.filtered[fpkm_table.filtered$L2FC >= 1 & fpkm_table.filtered$stdDevHnRNPM < fpkm_table.filtered$meanHnRNPK,]
+                fpkm_table.filtered <- fpkm_table.filtered[, c(1:3,ncol(fpkm_table.filtered),5:ncol(fpkm_table.filtered)-1)]
+                DT::datatable(as.data.frame(fpkm_table.filtered), rownames = F, filter = 'top', caption = 'FPKM data of abundant transcripts of top genes', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="FPKMAbundantTopTranscripts"),list(extend='csv',title="FPKMAbundantTopTranscripts"),list(extend='excel',filename="FPKMAbundantTopTranscripts"),list(extend='pdf',filename="FPKMAbundantTopTranscripts"),list(extend='print',filename="FPKMAbundantTopTranscripts")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+
+                ## Select Ensembl Mart
+                ensmart <- biomaRt::useMart("ensembl",  host="uswest.ensembl.org", dataset="hsapiens_gene_ensembl", verbose=F) 
+                ## Get all transcript annotations
+                #listAttributes(ensmart)
+                top_transcripts_meta <- biomaRt::getBM(attributes=c("hgnc_symbol", 
+                                                                    "ensembl_gene_id", 
+                                                                    "chromosome_name", 
+                                                                    "start_position", 
+                                                                    "end_position",
+                                                                    "strand",
+                                                                    "ensembl_transcript_id",
+                                                                    "transcript_start",
+                                                                    "transcript_end",
+                                                                    "transcript_biotype"), 
+                                                       filters="hgnc_symbol" , 
+                                                       values=unique(fpkm_table.filtered$hgnc_symbol), 
+                                                       mart=ensmart)
+                three_utr <- 1
+                five_utr <- 2
+                cds <- 3
+                column_names <- c("3utr", "5utr", "coding")
+                sequence_batches <- vector("list", 3)
+                filtered.sequence_batches <- vector("list", 3)
+                top_transcripts_meta <- top_transcripts_meta[top_transcripts_meta$ensembl_transcript_id %in% fpkm_table.filtered$ensembl_transcript_id,]
+                
+                ## Get all transcript sequences.
+                for(i in 1:length(sequence_batches)){
+                  sequence_batches[[i]] <- biomaRt::getSequence(id=top_transcripts_meta$ensembl_transcript_id, seqType = column_names[i], mart = ensmart, type="ensembl_transcript_id")
+                  filtered.sequence_batches[[i]] <- sequence_batches[[i]][sequence_batches[[i]][,1] != "Sequence unavailable",]
+                  filtered.sequence_batches[[i]] <- merge( filtered.sequence_batches[[i]] , top_transcripts_meta, by="ensembl_transcript_id")
+                }
+                
+                ncrna <- biomaRt::getSequence(id=top_transcripts_meta$ensembl_transcript_id, seqType ="cdna", mart = ensmart, type="ensembl_transcript_id")
+                ncrna <- ncrna[ncrna$ensembl_transcript_id %in% top_transcripts_meta[top_transcripts_meta$transcript_biotype=="lncRNA", ]$ensembl_transcript_id,]
+  
+                DT::datatable(as.data.frame(top_transcripts_meta), rownames = F, filter = 'top', caption = 'Metadata of abundant transcripts of top genes with available sequence', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="MetadataAbundantTopTranscripts"),list(extend='csv',title="MetadataAbundantTopTranscripts"),list(extend='excel',filename="MetadataAbundantTopTranscripts"),list(extend='pdf',filename="MetadataAbundantTopTranscripts"),list(extend='print',filename="MetadataAbundantTopTranscripts")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+       
+                DT::datatable(as.data.frame(top_transcripts_meta[top_transcripts_meta$ensembl_transcript_id %in% filtered.sequence_batches[[1]]$ensembl_transcript_id
+                                                                 | top_transcripts_meta$ensembl_transcript_id %in% filtered.sequence_batches[[2]]$ensembl_transcript_id
+                                                                 | top_transcripts_meta$ensembl_transcript_id %in% filtered.sequence_batches[[3]]$ensembl_transcript_id,]), rownames = F, filter = 'top', caption = 'Metadata of abundant transcripts of top genes with available sequence', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="MetadataAbundantTopTranscripts"),list(extend='csv',title="MetadataAbundantTopTranscripts"),list(extend='excel',filename="MetadataAbundantTopTranscripts"),list(extend='pdf',filename="MetadataAbundantTopTranscripts"),list(extend='print',filename="MetadataAbundantTopTranscripts")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+        
+                ncrna.batch <- top_transcripts_meta[top_transcripts_meta$ensembl_transcript_id %in% ncrna$ensembl_transcript_id,]
+                DT::datatable(as.data.frame(top_transcripts_meta[top_transcripts_meta$ensembl_transcript_id %in% ncrna$ensembl_transcript_id,]), rownames = F, filter = 'top', caption = 'Metadata of abundant transcripts of top genes with available sequence', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="MetadataAbundantTopTranscripts"),list(extend='csv',title="MetadataAbundantTopTranscripts"),list(extend='excel',filename="MetadataAbundantTopTranscripts"),list(extend='pdf',filename="MetadataAbundantTopTranscripts"),list(extend='print',filename="MetadataAbundantTopTranscripts")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+       
+                ndf <- vector("list", 4)
+                region_names <- c("three_utr", "five_utr", "cds", "ncrna") 
+                for(i in 1:3){
+                  number_of_sequences <- list(nrow(sequence_batches[[i]]), nrow(filtered.sequence_batches[[i]]))
+                  names(number_of_sequences) <- c("all_sequences", "available_sequences")
+                  ndf[[i]] <- as.data.frame(t(as.data.frame(number_of_sequences)))
+                  colnames(ndf[[i]]) <- c("counts")
+                  ndf[[i]]$region <- region_names[i]
+                  ndf[[i]]$type <- ifelse(rownames(ndf[[i]])=="available_sequences", "available", "all")
+                  ndf[[i]] <- ndf[[i]][, c(2,1,3)]
+                }
+                
+                ns <- list(12,12)
+                names(ns) <- c("all_sequences","available_sequences")
+                ndf[[4]] <- as.data.frame(t(as.data.frame(ns)))
+                colnames(ndf[[4]]) <- c("counts")
+                ndf[[4]]$region <- region_names[4]
+                ndf[[4]]$type <- ifelse(rownames(ndf[[4]])=="available_sequences", "available", "all")
+                ndf[[4]] <- ndf[[4]][, c(2,1,3)]
+                
+                region_availability <- do.call("rbind", ndf)
+                DT::datatable(as.data.frame(region_availability), rownames = F, filter = 'top', caption = 'Number of available transcript regions', extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = list(list(extend='copy',title="RegionAvailabilityStats"),list(extend='csv',title="RegionAvailabilityStats"),list(extend='excel',filename="RegionAvailabilityStats"),list(extend='pdf',filename="RegionAvailabilityStats"),list(extend='print',filename="RegionAvailabilityStats")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+                
+                
+
+                flank10 <- paste(rep(".",10),collapse="")
+                flank20 <- paste(rep(".",20),collapse="")
+                # Interaction Motifs
+                int.motifs <- vector("list", 13)
+                int.motifs.noGs <- vector("list", 13)
+                # Regulatory Motifs
+                reg.motifs <- vector("list", 23)
+                reg.motifs.noGs <- vector("list", 23)
+                # Unspecific Tetranucleotide (TCCC or CCCC)
+                tetra.motif.10 <- paste(flank10,"(TCCC|CCCC)",flank10, sep="")
+                tetra.motif.20 <- paste(flank20,"(TCCC|CCCC)",flank20, sep="")
+                
+                # Generate all interaction motif instances.
+                for(si in 1:12){
+                  int.motifs[[si]] <- paste(flank10,"(TCCC|CCCC)",paste(rep(".",si-1),collapse=""),"(TCCC|CCCC)",flank10, sep="")
+                  int.motifs.noGs[[si]] <- paste(flank10,"(TCCC|CCCC)",paste(rep("[ACT]",si-1),collapse=""),"(TCCC|CCCC)",flank10, sep="")
+                }
+                
+                # Generate all regulatory motif instances.
+                for(s in 0:22){
+                  reg.motifs[[s+1]] <- list()
+                  for(l in 0:s){
+                    for(m in 0:max(0,s-l)){
+                      for(r in 0:max(0,s-(l+m))){
+                        if(l+m+r==s){
+                          # print(paste("l:",l," m:",m, " r:",r," = ",s,sep=""))
+                          reg.motifs[[s+1]][[length(reg.motifs[[s+1]])+1]] <- paste(
+                            "(..........",
+                            "(TCCC|CCCC)",
+                            paste(rep(".",l),collapse=""),
+                            "(TCCC|CCCC)",
+                            paste(rep(".",m),collapse=""),
+                            "(TCCC|CCCC)",
+                            paste(rep(".",r),collapse=""),
+                            "(TCCC|CCCC)",
+                            "..........)", 
+                            sep="")
+                        }
+                      }
+                    }
+                  }
+                  reg.motifs[[s+1]] <- paste(unique(unlist( reg.motifs[[s+1]])),collapse=" | ")
+                }
+                
+                # Generate all regulatory motif instances.
+                for(s in 0:22){
+                  reg.motifs.noGs[[s+1]] <- list()
+                  for(l in 0:s){
+                    for(m in 0:max(0,s-l)){
+                      for(r in 0:max(0,s-(l+m))){
+                        if(l+m+r==s){
+                          # print(paste("l:",l," m:",m, " r:",r," = ",s,sep=""))
+                          reg.motifs.noGs[[s+1]][[length(reg.motifs.noGs[[s+1]])+1]] <- paste(
+                            "(..........",
+                            "(TCCC|CCCC)",
+                            paste(rep("[ACT]",l),collapse=""),
+                            "(TCCC|CCCC)",
+                            paste(rep("[ACT]",m),collapse=""),
+                            "(TCCC|CCCC)",
+                            paste(rep("[ACT]",r),collapse=""),
+                            "(TCCC|CCCC)",
+                            "..........)", 
+                            sep="")
+                        }
+                      }
+                    }
+                  }
+                  reg.motifs.noGs[[s+1]] <- paste(unique(unlist( reg.motifs.noGs[[s+1]])),collapse=" | ")
+                }
+                
+   
+                df.int.motifs <- data.frame(`motif instance`=NULL, `motif length`=NULL)
+                
+                for(s in 0:11){
+                  tmp_df <- as.data.frame(int.motifs[[s+1]])
+                  tmp_df$length <- s+8
+                  colnames(tmp_df) <- c("motif instance", "motif length")
+                  #tmp_df <- tmp_df[,c(2,1)]
+                  df.int.motifs <- rbind(df.int.motifs, tmp_df)
+                }
+                DT::datatable(as.data.frame(df.int.motifs), rownames = F, filter = 'top', caption = 'Table of all interaction motifs by length', extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = list(list(extend='copy',title="IntMotifsListByLength"),list(extend='csv',title="IntMotifsListByLength"),list(extend='excel',filename="IntMotifsListByLength"),list(extend='pdf',filename="IntMotifsListByLength"),list(extend='print',filename="IntMotifsListByLength")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+ 
+                df.int.motifs.noGs <- data.frame(`motif instance`=NULL, `motif length`=NULL)
+                
+                for(s in 0:11){
+                  tmp_df <- as.data.frame(int.motifs.noGs[[s+1]])
+                  tmp_df$length <- s+8
+                  colnames(tmp_df) <- c("motif instance", "motif length")
+                  #tmp_df <- tmp_df[,c(2,1)]
+                  df.int.motifs.noGs <- rbind(df.int.motifs.noGs, tmp_df)
+                }
+                DT::datatable(as.data.frame(df.int.motifs.noGs), rownames = F, filter = 'top', caption = 'Table of all interaction motifs without critical Gs by length', extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = list(list(extend='copy',title="IntMotifsListByLength"),list(extend='csv',title="IntMotifsListByLength"),list(extend='excel',filename="IntMotifsListByLength"),list(extend='pdf',filename="IntMotifsListByLength"),list(extend='print',filename="IntMotifsListByLength")), autoWidth = TRUE, pageLength = 10, columnDefs = list(list(className = 'dt-left'))))
+
+                df <- data.frame(`motif instance`=NULL, `motif length`=NULL)
+                
+                for(s in 0:22){
+                  tmp_df <- as.data.frame(reg.motifs[[s+1]])
+                  tmp_df$length <- s+16
+                  colnames(tmp_df) <- c("motif instance", "motif length")
+                  #tmp_df <- tmp_df[,c(2,1)]
+                  df <- rbind(df, tmp_df)
+                }
+                
+                
+                DT::datatable(as.data.frame(df), rownames = F, filter = 'top', caption = 'Table of all regulatory motifs by length', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="RegMotifsListByLength"),list(extend='csv',title="RegMotifsListByLength"),list(extend='excel',filename="RegMotifsListByLength"),list(extend='pdf',filename="RegMotifsListByLength"),list(extend='print',filename="RegMotifsListByLength")), autoWidth = TRUE, pageLength = 5, columnDefs = list(list(className = 'dt-left'))))
+                
+ 
+                ## Split into ncrna and mrna
+                ## Split into 3utr, 5utr and cds
+                ## Split into interaction and regulatory motifs
+                ncrna <- 1
+                mrna <- 2
+                interaction <- 1
+                regulatory <- 2
+                three_utr <- 1
+                five_utr <- 2
+                cds <- 3
+                
+                ## biotypes
+                match_data <- vector("list", 2)
+                match_data[[ncrna]] <- vector("list", 3)
+                match_data[[mrna]] <- vector("list", 3)
+                
+                for(sb in 1:length(sequence_batches)){
+                  match_data[[mrna]][[sb]] <- filtered.sequence_batches[[sb]][filtered.sequence_batches[[sb]]$transcript_biotype=="protein_coding",]
+                }
+                
+                for(sb in 1:length(sequence_batches)){
+                  match_data[[ncrna]][[sb]] <- filtered.sequence_batches[[sb]][ncrna.batch$transcript_biotype=="lncRNA",]
+                }
+
+                specific.matches.mrna <- vector("list", 3)
+                specific.regulatory.matches.mrna <- vector("list", 3)
+                unspecific.matches.mrna <- vector("list", 3)
+                column_names <- c("3utr", "5utr", "coding")
+                for(sb in 1:3){
+                  print(paste("Computing matches for ",column_names[sb]," region.", sep=""))
+                  specific.matches.mrna[[sb]] <- vector("list", 11)
+                  for(s in 1:12){
+                    print(paste("    Computing matches for interaction motif of length ",(s+7),".", sep=""))
+                    specific.matches.mrna[[sb]][[s]] <- match_data[[mrna]][[sb]][,2] %>% 
+                      stringr::str_extract_all(int.motifs[[s]], simplify = F) %>% 
+                      na.omit() %>% 
+                      unlist() %>% 
+                      as.vector()
+                    print(paste("    Computing matches for interaction motif of length ",(s+7)," ended.", sep=""))
+                  }
+                  unspecific.matches.mrna[[sb]] <- as.vector(na.omit(unlist(stringr::str_extract_all(match_data[[mrna]][[sb]][,2], tetra.motif.10))))
+                  print(paste("Computing matches for unspecific tetranucleotide CCCC or TCCCC ended.", sep=""))
+                }
+
+                specific.matches.mrna.noGs <- vector("list", 3)
+                specific.regulatory.matches.mrna.noGs <- vector("list", 3)
+                unspecific.matches.mrna.noGs <- vector("list", 3)
+                column_names <- c("3utr", "5utr", "coding")
+                for(sb in 1:3){
+                  print(paste("Computing matches for ",column_names[sb]," region.", sep=""))
+                  specific.matches.mrna.noGs[[sb]] <- vector("list", 11)
+                  for(s in 1:12){
+                    print(paste("    Computing matches for interaction motif of length ",(s+7),".", sep=""))
+                    specific.matches.mrna.noGs[[sb]][[s]] <- match_data[[mrna]][[sb]][,2] %>% 
+                      stringr::str_extract_all(int.motifs.noGs[[s]], simplify = F) %>% 
+                      na.omit() %>% 
+                      unlist() %>% 
+                      as.vector()
+                    print(paste("    Computing matches for interaction motif of length ",(s+7)," ended.", sep=""))
+                  }
+                  unspecific.matches.mrna.noGs[[sb]] <- as.vector(na.omit(unlist(stringr::str_extract_all(match_data[[mrna]][[sb]][,2], tetra.motif.10))))
+                  print(paste("Computing matches for unspecific tetranucleotide CCCC or TCCCC ended.", sep=""))
+                }
+
+                matches.mrna.3.utr <- as.data.frame(unlist(specific.matches.mrna[[three_utr]]))
+                colnames(matches.mrna.3.utr) <- "matches.mrna.3.utr"
+                matches.mrna.3.utr
+                
+                #DT::datatable(as.data.frame(matches.mrna.3.utr), rownames = F, filter = 'top', caption = 'Table of all regulatory motifs by length', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="RegMotifsListByLength"),list(extend='csv',title="RegMotifsListByLength"),list(extend='excel',filename="RegMotifsListByLength"),list(extend='pdf',filename="RegMotifsListByLength"),list(extend='print',filename="RegMotifsListByLength")), autoWidth = TRUE, pageLength = 5, columnDefs = list(list(className = 'dt-left'))))
+                
+       
+                matches.mrna.noGs.3.utr <- as.data.frame(unlist(specific.matches.mrna.noGs[[three_utr]]))
+                colnames(matches.mrna.noGs.3.utr) <- "matches.mrna.noGs.3.utr"
+                matches.mrna.noGs.3.utr
+                
+                #DT::datatable(as.data.frame(matches.mrna.noGs.3.utr), rownames = F, filter = 'top', caption = 'Table of all regulatory motifs by length', extensions = 'Buttons', options = list(scrollX = TRUE, dom = 'Bfrtip', buttons = list(list(extend='copy',title="RegMotifsListByLength"),list(extend='csv',title="RegMotifsListByLength"),list(extend='excel',filename="RegMotifsListByLength"),list(extend='pdf',filename="RegMotifsListByLength"),list(extend='print',filename="RegMotifsListByLength")), autoWidth = TRUE, pageLength = 5, columnDefs = list(list(className = 'dt-left'))))
+                
+          
+                matches.mrna.5.utr <- as.data.frame(unlist(specific.matches.mrna[[five_utr]]))
+                colnames(matches.mrna.5.utr) <- "matches.mrna.5.utr"
+                matches.mrna.5.utr
+       
+                matches.mrna.noGs.5.utr <- as.data.frame(unlist(specific.matches.mrna.noGs[[five_utr]]))
+                colnames(matches.mrna.noGs.5.utr) <- "matches.mrna.noGs.5.utr"
+                matches.mrna.noGs.5.utr
+        
+                matches.mrna.cds <- as.data.frame(unlist(specific.matches.mrna[[cds]]))
+                colnames(matches.mrna.cds) <- "matches.mrna.cds"
+                matches.mrna.cds
+         
+                matches.mrna.noGs.cds <- as.data.frame(unlist(specific.matches.mrna.noGs[[cds]]))
+                colnames(matches.mrna.noGs.cds) <- "matches.mrna.noGs.cds"
+                matches.mrna.noGs.cds
+       
+                print(paste("Computing matches for ",column_names[sb]," region.", sep=""))
+                specific.matches.ncrna <- vector("list", 11)
+                for(s in 1:12){
+                  print(paste("    Computing matches for interaction motif of length ",(s+7),".", sep=""))
+                  specific.matches.ncrna[[s]] <- match_data[[ncrna]][[sb]][,2] %>% 
+                    stringr::str_extract_all(int.motifs[[s]], simplify = F) %>% 
+                    na.omit() %>% 
+                    unlist() %>% 
+                    as.vector()
+                  print(paste("    Computing matches for interaction motif of length ",(s+7)," ended.", sep=""))
+                }
+                unspecific.matches.ncrna <- as.vector(na.omit(unlist(stringr::str_extract_all(match_data[[ncrna]][[sb]][,2], tetra.motif.10))))
+                print(paste("Computing matches for unspecific tetranucleotide CCCC or TCCCC ended.", sep=""))
+      
+                print(paste("Computing matches for ",column_names[sb]," region.", sep=""))
+                specific.matches.ncrna.noGs <- vector("list", 11)
+                for(s in 1:11){
+                  print(paste("    Computing matches for interaction motif of length ",(s+7),".", sep=""))
+                  specific.matches.ncrna.noGs[[s]] <- match_data[[ncrna]][[sb]][,2] %>% 
+                    stringr::str_extract_all(int.motifs.noGs[[s]], simplify = F) %>% 
+                    na.omit() %>% 
+                    unlist() %>% 
+                    as.vector()
+                  print(paste("    Computing matches for interaction motif of length ",(s+7)," ended.", sep=""))
+                }
+                unspecific.matches.ncrna.noGs <- as.vector(na.omit(unlist(stringr::str_extract_all(match_data[[ncrna]][[sb]][,2], tetra.motif.10))))
+                print(paste("Computing matches for unspecific tetranucleotide CCCC or TCCCC ended.", sep=""))
+           
+                matches.ncrna <- as.data.frame(unlist(specific.matches.ncrna))
+                colnames(matches.ncrna) <- "matches.mrna.ncrna"
+                matches.ncrna
+      
+                matches.ncrna.noGs <- as.data.frame(unlist(specific.matches.ncrna.noGs))
+                colnames(matches.ncrna.noGs) <- "matches.mrna.ncrna.noGs"
+                matches.ncrna.noGs
+         
+                all.specific.matches.mrna <- vector("list", 12)
+                all.specific.matches.mrna.noGs <- vector("list", 12)
+                all.unspecific.matches.mrna <- vector("list", 12)
+                all.unspecific.matches.mrna.noGs  <- vector("list", 12)
+                for(l in 1:12){
+                  all.specific.matches.mrna.noGs[[l]] <- c(specific.matches.mrna.noGs[[three_utr]][[l]], specific.matches.mrna.noGs[[five_utr]][[l]], specific.matches.mrna.noGs[[cds]][[l]])
+                  all.specific.matches.mrna[[l]] <- c(specific.matches.mrna[[three_utr]][[l]], specific.matches.mrna[[five_utr]][[l]], specific.matches.mrna[[cds]][[l]])
+                }
+                all.unspecific.matches.mrna <- c(unspecific.matches.mrna[[three_utr]], unspecific.matches.mrna[[five_utr]], unspecific.matches.mrna[[cds]])
+                all.unspecific.matches.mrna.noGs <- c(unspecific.matches.mrna.noGs[[three_utr]], unspecific.matches.mrna.noGs[[five_utr]], unspecific.matches.mrna.noGs[[cds]])
+              
+                require(ggplot2)
+                require(ggseqlogo)
+                ncol=1
+                method="bits"
+                sepcific.mrna.list <- (c(all.specific.matches.mrna))
+                unspecfic.mrna.list <- list(all.unspecific.matches.mrna)
+                sub.mrna.left <- unlist(sepcific.mrna.list)
+                sub.mrna.left <- substring(sub.mrna.left, first = 1, last=14)
+                sub.mrna.right <- unlist(sepcific.mrna.list)
+                sub.mrna.right <- substring(sub.mrna.right, first = nchar(sub.mrna.right)-13, last=nchar(sub.mrna.right))
+                sub.mrna.unspecific <- all.unspecific.matches.mrna
+                
+                
+                sub.mrna.left <- list(sub.mrna.left)
+                names(sub.mrna.left) <- "Motif Upstream"
+                sub.mrna.right <- list(sub.mrna.right)
+                names(sub.mrna.right) <- "Motif Downstream"
+                sub.mrna.unspecific <- list(sub.mrna.unspecific)
+                names(sub.mrna.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.left <- ggseqlogo(sub.mrna.left, ncol = ncol, method=method)
+                ggsl.mrna.right <- ggseqlogo(sub.mrna.right, ncol = ncol, method=method)
+                ggsl.mrna.unspecific <- ggseqlogo(sub.mrna.unspecific, ncol = ncol, method=method)
+               
+                require(ggplot2)
+                require(ggseqlogo)
+                library(cowplot)
+                ncol=1
+                method="bits"
+                sepcific.mrna.noGs.list <- (c(all.specific.matches.mrna.noGs))
+                unspecfic.mrna.noGs.list <- list(all.unspecific.matches.mrna.noGs)
+                sub.mrna.noGs.left <- unlist(sepcific.mrna.noGs.list)
+                sub.mrna.noGs.left <- substring(sub.mrna.noGs.left, first = 1, last=14)
+                sub.mrna.noGs.right <- unlist(sepcific.mrna.noGs.list)
+                sub.mrna.noGs.right <- substring(sub.mrna.noGs.right, first = nchar(sub.mrna.noGs.right)-13, last=nchar(sub.mrna.noGs.right))
+                sub.mrna.unspecific <- all.unspecific.matches.mrna
+                
+                
+                sub.mrna.noGs.left <- list(sub.mrna.noGs.left)
+                names(sub.mrna.noGs.left) <- "Motif Upstream"
+                sub.mrna.noGs.right <- list(sub.mrna.noGs.right)
+                names(sub.mrna.noGs.right) <- "Motif Downstream"
+                sub.mrna.noGs.unspecific <- list(sub.mrna.unspecific)
+                names(sub.mrna.noGs.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.noGs.left <- ggseqlogo(sub.mrna.noGs.left, ncol = ncol, method=method)
+                ggsl.mrna.noGs.right <- ggseqlogo(sub.mrna.noGs.right, ncol = ncol, method=method)
+                ggsl.mrna.noGs.unspecific <- ggseqlogo(sub.mrna.unspecific, ncol = ncol, method=method)
+                
+                criticalPlotTitle <- ggplot()+ggtitle("With critical Gs")+theme_void()+theme(plot.title = element_text(hjust = 0.5, colour = "darkred"))
+                nonCriticalPlotTitle <- ggplot()+ggtitle("Without critical Gs")+theme_void()+theme(plot.title = element_text(hjust = 0.5, colour = "darkred"))
+                
+                criticalMotifPlot <- plot_grid(ggsl.mrna.left, ggsl.mrna.right,ncol=2)
+                criticalUnspecTetraPlot <- plot_grid(ggsl.mrna.unspecific)
+                nonCriticalMotifPlot <- plot_grid(ggsl.mrna.noGs.left, ggsl.mrna.noGs.right,ncol=2)
+                nonCriticalUnspecificTetraPlot <- plot_grid(ggsl.mrna.noGs.unspecific)
+                
+                plot_grid(plot_grid(plot_grid(criticalPlotTitle, criticalMotifPlot, rel_heights = c(1,10), ncol=1), criticalUnspecTetraPlot, ncol=1),
+                          plot_grid(plot_grid(nonCriticalPlotTitle, nonCriticalMotifPlot, rel_heights = c(1,10), ncol=1), nonCriticalUnspecificTetraPlot, ncol=1), ncol=2)
+       
+                library(ggseqlogo)
+                library(cowplot)
+                lengths.noGs <- vector("list", 12)
+                for(l in 1:12){
+                  lengths.noGs[[l]] <- length(all.specific.matches.mrna.noGs[[l]])
+                }
+                
+                lengths <- vector("list", 12)
+                for(l in 1:12){
+                  lengths[[l]] <- length(all.specific.matches.mrna[[l]])
+                }
+                
+                ldf.noGs <- as.data.frame(unlist(lengths.noGs))
+                colnames(ldf.noGs) <- "frequency"
+                ldf.noGs$Type <- "Without critical G's"
+                ldf.noGs$SUM <- sum(ldf.noGs$frequency)
+                ldf <- as.data.frame(unlist(lengths))
+                colnames(ldf) <- "frequency"
+                ldf$Type <- "With critical G's"
+                ldf$SUM <- sum(ldf$frequency)
+                ldf$perc <- round(100*ldf$frequency/ldf$SUM, 2)
+                ldf.noGs$perc <- round(100*ldf.noGs$frequency/ldf.noGs$SUM, 2)
+                
+                
+                
+                list.mrna.noGs <- c(all.specific.matches.mrna.noGs, list(all.unspecific.matches.mrna.noGs))
+                list.mrna <- c(all.specific.matches.mrna, list(all.unspecific.matches.mrna))
+                
+                names(list.mrna.noGs) <- c(paste("Length ",8:19," - Frequency: ", ldf.noGs$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                names(list.mrna) <- c(paste("Length ",8:19," - Frequency: ", ldf$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                method="bit"
+                ggsl.mrna.noGs <- ggseqlogo(list.mrna.noGs, ncol = ncol, method=method)
+                ggsl.mrna <- ggseqlogo(list.mrna, ncol = ncol, method=method)
+                
+                
+                plot_grid(plot_grid(criticalPlotTitle, nonCriticalPlotTitle, ncol=2), plot_grid(ggsl.mrna, ggsl.mrna.noGs, ncol=2), rel_heights = c(0.1,10), ncol=1)
+                
+                
+                require(ggplot2)
+                require(ggseqlogo)
+                ncol=1
+                method="bits"
+                sepcific.mrna.list <- (c(specific.matches.mrna[[three_utr]]))
+                unspecfic.mrna.list <- list(unspecific.matches.mrna[[three_utr]])
+                sub.mrna.left <- unlist(sepcific.mrna.list)
+                sub.mrna.left <- substring(sub.mrna.left, first = 1, last=14)
+                sub.mrna.right <- unlist(sepcific.mrna.list)
+                sub.mrna.right <- substring(sub.mrna.right, first = nchar(sub.mrna.right)-13, last=nchar(sub.mrna.right))
+                sub.mrna.unspecific <- unspecific.matches.mrna[[three_utr]]
+                
+                
+                sub.mrna.left <- list(sub.mrna.left)
+                names(sub.mrna.left) <- "Motif Upstream"
+                sub.mrna.right <- list(sub.mrna.right)
+                names(sub.mrna.right) <- "Motif Downstream"
+                sub.mrna.unspecific <- list(sub.mrna.unspecific)
+                names(sub.mrna.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.left <- ggseqlogo(sub.mrna.left, ncol = ncol, method=method)
+                ggsl.mrna.right <- ggseqlogo(sub.mrna.right, ncol = ncol, method=method)
+                ggsl.mrna.unspecific <- ggseqlogo(sub.mrna.unspecific, ncol = ncol, method=method)
+                
+                require(ggplot2)
+                require(ggseqlogo)
+                library(cowplot)
+                ncol=1
+                method="bits"
+                sepcific.mrna.noGs.list <- (c(specific.matches.mrna.noGs[[three_utr]]))
+                unspecfic.mrna.noGs.list <- list(unspecific.matches.mrna.noGs[[three_utr]])
+                sub.mrna.noGs.left <- unlist(sepcific.mrna.noGs.list)
+                sub.mrna.noGs.left <- substring(sub.mrna.noGs.left, first = 1, last=14)
+                sub.mrna.noGs.right <- unlist(sepcific.mrna.noGs.list)
+                sub.mrna.noGs.right <- substring(sub.mrna.noGs.right, first = nchar(sub.mrna.noGs.right)-13, last=nchar(sub.mrna.noGs.right))
+                sub.mrna.unspecific <- unspecific.matches.mrna[[three_utr]]
+                
+                
+                sub.mrna.noGs.left <- list(sub.mrna.noGs.left)
+                names(sub.mrna.noGs.left) <- "Motif Upstream"
+                sub.mrna.noGs.right <- list(sub.mrna.noGs.right)
+                names(sub.mrna.noGs.right) <- "Motif Downstream"
+                sub.mrna.noGs.unspecific <- list(sub.mrna.unspecific)
+                names(sub.mrna.noGs.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.noGs.left <- ggseqlogo(sub.mrna.noGs.left, ncol = ncol, method=method)
+                ggsl.mrna.noGs.right <- ggseqlogo(sub.mrna.noGs.right, ncol = ncol, method=method)
+                ggsl.mrna.noGs.unspecific <- ggseqlogo(sub.mrna.unspecific, ncol = ncol, method=method)
+                
+                criticalPlotTitle <- ggplot()+ggtitle("With critical Gs")+theme_void()+theme(plot.title = element_text(hjust = 0.5, colour = "darkred"))
+                nonCriticalPlotTitle <- ggplot()+ggtitle("Without critical Gs")+theme_void()+theme(plot.title = element_text(hjust = 0.5, colour = "darkred"))
+                
+                criticalMotifPlot <- plot_grid(ggsl.mrna.left, ggsl.mrna.right,ncol=2)
+                criticalUnspecTetraPlot <- plot_grid(ggsl.mrna.unspecific)
+                nonCriticalMotifPlot <- plot_grid(ggsl.mrna.noGs.left, ggsl.mrna.noGs.right,ncol=2)
+                nonCriticalUnspecificTetraPlot <- plot_grid(ggsl.mrna.noGs.unspecific)
+                
+                plot_grid(plot_grid(plot_grid(criticalPlotTitle, criticalMotifPlot, rel_heights = c(1,10), ncol=1), criticalUnspecTetraPlot, ncol=1),
+                          plot_grid(plot_grid(nonCriticalPlotTitle, nonCriticalMotifPlot, rel_heights = c(1,10), ncol=1), nonCriticalUnspecificTetraPlot, ncol=1), ncol=2)
+          
+                library(ggseqlogo)
+                library(cowplot)
+                lengths.noGs <- vector("list", 12)
+                for(l in 1:12){
+                  lengths.noGs[[l]] <- length(specific.matches.mrna.noGs[[three_utr]][[l]])
+                }
+                
+                lengths <- vector("list", 12)
+                for(l in 1:12){
+                  lengths[[l]] <- length(specific.matches.mrna[[three_utr]][[l]])
+                }
+                
+                ldf.noGs <- as.data.frame(unlist(lengths.noGs))
+                colnames(ldf.noGs) <- "frequency"
+                ldf.noGs$Type <- "Without critical G's"
+                ldf.noGs$SUM <- sum(ldf.noGs$frequency)
+                ldf <- as.data.frame(unlist(lengths))
+                colnames(ldf) <- "frequency"
+                ldf$Type <- "With critical G's"
+                ldf$SUM <- sum(ldf$frequency)
+                ldf$perc <- round(100*ldf$frequency/ldf$SUM, 2)
+                ldf.noGs$perc <- round(100*ldf.noGs$frequency/ldf.noGs$SUM, 2)
+                
+                
+                
+                list.mrna.noGs <- c(specific.matches.mrna.noGs[[three_utr]], list(unspecific.matches.mrna.noGs[[three_utr]]))
+                list.mrna <- c(specific.matches.mrna[[three_utr]], list(unspecific.matches.mrna[[three_utr]]))
+                
+                names(list.mrna.noGs) <- c(paste("Length ",8:19," - Frequency: ", ldf.noGs$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                names(list.mrna) <- c(paste("Length ",8:19," - Frequency: ", ldf$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                method="bit"
+                ggsl.mrna.noGs <- ggseqlogo(list.mrna.noGs, ncol = ncol, method=method)
+                ggsl.mrna <- ggseqlogo(list.mrna, ncol = ncol, method=method)
+                
+                
+                plot_grid(plot_grid(criticalPlotTitle, nonCriticalPlotTitle, ncol=2), plot_grid(ggsl.mrna, ggsl.mrna.noGs, ncol=2), rel_heights = c(0.1,10), ncol=1)
+                
+                
+                require(ggplot2)
+                require(ggseqlogo)
+                
+                ### Detailed version
+                ggsl.mrna <- ggseqlogo( c(specific.matches.mrna[[five_utr]], list(unspecific.matches.mrna[[five_utr]])), ncol = ncol, method=method)
+                ggsl.mrna
+                
+                ### With critical Gs
+                ncol=1
+                method="bits"
+                sepcific.mrna.five_utr.list <- (c(specific.matches.mrna[[five_utr]]))
+                sub.mrna.five_utr.left <- unlist(sepcific.mrna.five_utr.list)
+                sub.mrna.five_utr.left <- substring(sub.mrna.five_utr.left, first = 1, last=14)
+                sub.mrna.five_utr.right <- unlist(sepcific.mrna.five_utr.list)
+                sub.mrna.five_utr.right <- substring(sub.mrna.five_utr.right, first = nchar(sub.mrna.five_utr.right)-13, last=nchar(sub.mrna.five_utr.right))
+                sub.mrna.five_utr.unspecific <-  unspecific.matches.mrna[[five_utr]]
+                
+                sub.mrna.five_utr.left <- list(sub.mrna.five_utr.left)
+                names(sub.mrna.five_utr.left) <- "Motif Upstream"
+                sub.mrna.five_utr.right <- list(sub.mrna.five_utr.right)
+                names(sub.mrna.five_utr.right) <- "Motif Downstream"
+                sub.mrna.five_utr.unspecific <- list(sub.mrna.five_utr.unspecific)
+                names(sub.mrna.five_utr.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ### Create plots
+                ggsl.mrna.five_utr.left <- ggseqlogo(sub.mrna.five_utr.left, ncol = ncol, method=method)
+                ggsl.mrna.five_utr.right <- ggseqlogo(sub.mrna.five_utr.right, ncol = ncol, method=method)
+                ggsl.mrna.five_utr.unspecific <- ggseqlogo(sub.mrna.five_utr.unspecific, ncol = ncol, method=method)
+                
+                ### Without critical Gs
+                sepcific.mrna.noGs.five_utr.list <- (c(specific.matches.mrna.noGs[[five_utr]]))
+                sub.mrna.noGs.five_utr.left <- unlist(sepcific.mrna.noGs.five_utr.list)
+                sub.mrna.noGs.five_utr.left <- substring(sub.mrna.noGs.five_utr.left, first = 1, last=14)
+                sub.mrna.noGs.five_utr.right <- unlist(sepcific.mrna.noGs.five_utr.list)
+                sub.mrna.noGs.five_utr.right <- substring(sub.mrna.noGs.five_utr.right, first = nchar(sub.mrna.noGs.five_utr.right)-13, last=nchar(sub.mrna.noGs.five_utr.right))
+                sub.mrna.noGs.five_utr.unspecific <-  unspecific.matches.mrna.noGs[[five_utr]]
+                
+                sub.mrna.noGs.five_utr.left <- list(sub.mrna.noGs.five_utr.left)
+                names(sub.mrna.noGs.five_utr.left) <- "Motif Upstream"
+                sub.mrna.noGs.five_utr.right <- list(sub.mrna.noGs.five_utr.right)
+                names(sub.mrna.noGs.five_utr.right) <- "Motif Downstream"
+                sub.mrna.noGs.five_utr.unspecific <- list(sub.mrna.noGs.five_utr.unspecific)
+                names(sub.mrna.noGs.five_utr.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ### Create plots
+                ggsl.mrna.noGs.five_utr.left <- ggseqlogo(sub.mrna.noGs.five_utr.left, ncol = ncol, method=method)
+                ggsl.mrna.noGs.five_utr.right <- ggseqlogo(sub.mrna.noGs.five_utr.right, ncol = ncol, method=method)
+                ggsl.mrna.noGs.five_utr.unspecific <- ggseqlogo(sub.mrna.noGs.five_utr.unspecific, ncol = ncol, method=method)
+                
+                ### Shot plots grid.
+                library(cowplot)
+                criticalMotifPlot <- plot_grid(ggsl.mrna.five_utr.left, ggsl.mrna.five_utr.right,ncol=2)
+                criticalUnspecTetraPlot <- plot_grid(ggsl.mrna.five_utr.unspecific)
+                nonCriticalMotifPlot <- plot_grid(ggsl.mrna.noGs.five_utr.left, ggsl.mrna.noGs.five_utr.right,ncol=2)
+                nonCriticalUnspecificTetraPlot <- plot_grid(ggsl.mrna.noGs.five_utr.unspecific)
+                
+                plot_grid(plot_grid(plot_grid(criticalPlotTitle, criticalMotifPlot, rel_heights = c(1,10), ncol=1), criticalUnspecTetraPlot, ncol=1),
+                          plot_grid(plot_grid(nonCriticalPlotTitle, nonCriticalMotifPlot, rel_heights = c(1,10), ncol=1), nonCriticalUnspecificTetraPlot, ncol=1), ncol=2)
+                
+                library(ggseqlogo)
+                library(cowplot)
+                lengths.noGs <- vector("list", 12)
+                for(l in 1:12){
+                  lengths.noGs[[l]] <- length(specific.matches.mrna.noGs[[five_utr]][[l]])
+                }
+                
+                lengths <- vector("list", 12)
+                for(l in 1:12){
+                  lengths[[l]] <- length(specific.matches.mrna[[five_utr]][[l]])
+                }
+                
+                ldf.noGs <- as.data.frame(unlist(lengths.noGs))
+                colnames(ldf.noGs) <- "frequency"
+                ldf.noGs$Type <- "Without critical G's"
+                ldf.noGs$SUM <- sum(ldf.noGs$frequency)
+                ldf <- as.data.frame(unlist(lengths))
+                colnames(ldf) <- "frequency"
+                ldf$Type <- "With critical G's"
+                ldf$SUM <- sum(ldf$frequency)
+                ldf$perc <- round(100*ldf$frequency/ldf$SUM, 2)
+                ldf.noGs$perc <- round(100*ldf.noGs$frequency/ldf.noGs$SUM, 2)
+                
+                
+                
+                list.mrna.noGs <- c(specific.matches.mrna.noGs[[five_utr]], list(unspecific.matches.mrna.noGs[[five_utr]]))
+                list.mrna <- c(specific.matches.mrna[[five_utr]], list(unspecific.matches.mrna[[five_utr]]))
+                
+                names(list.mrna.noGs) <- c(paste("Length ",8:19," - Frequency: ", ldf.noGs$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                names(list.mrna) <- c(paste("Length ",8:19," - Frequency: ", ldf$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                method="bit"
+                ggsl.mrna.noGs <- ggseqlogo(list.mrna.noGs, ncol = ncol, method=method)
+                ggsl.mrna <- ggseqlogo(list.mrna, ncol = ncol, method=method)
+                
+                
+                plot_grid(plot_grid(criticalPlotTitle, nonCriticalPlotTitle, ncol=2), plot_grid(ggsl.mrna, ggsl.mrna.noGs, ncol=2), rel_heights = c(0.1,10), ncol=1)
+                
+                
+                require(ggplot2)
+                require(ggseqlogo)
+                ncol=1
+                method="bit"
+                
+                ### With critical Gs
+                sepcific.mrna.cds.list <- (c(specific.matches.mrna[[cds]]))
+                sub.mrna.cds.left <- unlist(sepcific.mrna.cds.list)
+                sub.mrna.cds.left <- substring(sub.mrna.cds.left, first = 1, last=14)
+                sub.mrna.cds.right <- unlist(sepcific.mrna.cds.list)
+                sub.mrna.cds.right <- substring(sub.mrna.cds.right, first = nchar(sub.mrna.cds.right)-13, last=nchar(sub.mrna.cds.right))
+                sub.mrna.cds.unspecific <-  unspecific.matches.mrna[[cds]]
+                
+                sub.mrna.cds.left <- list(sub.mrna.cds.left)
+                names(sub.mrna.cds.left) <- "Motif Upstream"
+                sub.mrna.cds.right <- list(sub.mrna.cds.right)
+                names(sub.mrna.cds.right) <- "Motif Downstream"
+                sub.mrna.cds.unspecific <- list(sub.mrna.cds.unspecific)
+                names(sub.mrna.cds.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.cds.left <- ggseqlogo(sub.mrna.cds.left, ncol = ncol, method=method)
+                ggsl.mrna.cds.right <- ggseqlogo(sub.mrna.cds.right, ncol = ncol, method=method)
+                ggsl.mrna.cds.unspecific <- ggseqlogo(sub.mrna.cds.unspecific, ncol = ncol, method=method)
+                
+                ### Without critical G's
+                sepcific.mrna.noGs.cds.list <- (c(specific.matches.mrna.noGs[[cds]]))
+                sub.mrna.noGs.cds.left <- unlist(sepcific.mrna.noGs.cds.list)
+                sub.mrna.noGs.cds.left <- substring(sub.mrna.noGs.cds.left, first = 1, last=14)
+                sub.mrna.noGs.cds.right <- unlist(sepcific.mrna.noGs.cds.list)
+                sub.mrna.noGs.cds.right <- substring(sub.mrna.noGs.cds.right, first = nchar(sub.mrna.noGs.cds.right)-13, last=nchar(sub.mrna.noGs.cds.right))
+                sub.mrna.noGs.cds.unspecific <-  unspecific.matches.mrna.noGs[[cds]]
+                
+                sub.mrna.noGs.cds.left <- list(sub.mrna.noGs.cds.left)
+                names(sub.mrna.noGs.cds.left) <- "Motif Upstream"
+                sub.mrna.noGs.cds.right <- list(sub.mrna.noGs.cds.right)
+                names(sub.mrna.noGs.cds.right) <- "Motif Downstream"
+                sub.mrna.noGs.cds.unspecific <- list(sub.mrna.noGs.cds.unspecific)
+                names(sub.mrna.noGs.cds.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.noGs.cds.left <- ggseqlogo(sub.mrna.noGs.cds.left, ncol = ncol, method=method)
+                ggsl.mrna.noGs.cds.right <- ggseqlogo(sub.mrna.noGs.cds.right, ncol = ncol, method=method)
+                ggsl.mrna.noGs.cds.unspecific <- ggseqlogo(sub.mrna.noGs.cds.unspecific, ncol = ncol, method=method)
+                
+                plot_grid(plot_grid(plot_grid(ggsl.mrna.cds.left, ggsl.mrna.cds.right,ncol=2), plot_grid(ggsl.mrna.cds.unspecific), ncol=1),
+                          plot_grid(plot_grid(ggsl.mrna.noGs.cds.left, ggsl.mrna.noGs.cds.right,ncol=2), plot_grid(ggsl.mrna.noGs.cds.unspecific), ncol=1), ncol=2)
+                
+                
+                
+                criticalMotifPlot <- plot_grid(ggsl.mrna.cds.left, ggsl.mrna.cds.right,ncol=2)
+                criticalUnspecTetraPlot <- plot_grid(ggsl.mrna.cds.unspecific)
+                nonCriticalMotifPlot <- plot_grid(ggsl.mrna.noGs.cds.left, ggsl.mrna.noGs.cds.right,ncol=2)
+                nonCriticalUnspecificTetraPlot <- plot_grid(ggsl.mrna.noGs.cds.unspecific)
+                
+                
+                library(cowplot)
+                plot_grid(plot_grid(plot_grid(criticalPlotTitle, criticalMotifPlot, rel_heights = c(1,10), ncol=1), criticalUnspecTetraPlot, ncol=1),
+                          plot_grid(plot_grid(nonCriticalPlotTitle, nonCriticalMotifPlot, rel_heights = c(1,10), ncol=1), nonCriticalUnspecificTetraPlot, ncol=1), ncol=2)
+                
+
+                
+                lengths.noGs <- vector("list", 12)
+                for(l in 1:12){
+                  lengths.noGs[[l]] <- length(specific.matches.mrna.noGs[[cds]][[l]])
+                }
+                
+                lengths <- vector("list", 12)
+                for(l in 1:12){
+                  lengths[[l]] <- length(specific.matches.mrna[[cds]][[l]])
+                }
+                
+                ldf.noGs <- as.data.frame(unlist(lengths.noGs))
+                colnames(ldf.noGs) <- "frequency"
+                ldf.noGs$Type <- "Without critical G's"
+                ldf.noGs$SUM <- sum(ldf.noGs$frequency)
+                ldf <- as.data.frame(unlist(lengths))
+                colnames(ldf) <- "frequency"
+                ldf$Type <- "With critical G's"
+                ldf$SUM <- sum(ldf$frequency)
+                ldf$perc <- round(100*ldf$frequency/ldf$SUM, 2)
+                ldf.noGs$perc <- round(100*ldf.noGs$frequency/ldf.noGs$SUM, 2)
+                
+                
+                
+                list.mrna.noGs <- c(specific.matches.mrna.noGs[[cds]], list(unspecific.matches.mrna.noGs[[cds]]))
+                list.mrna <- c(specific.matches.mrna[[cds]], list(unspecific.matches.mrna[[cds]]))
+                
+                names(list.mrna.noGs) <- c(paste("Length ",8:19," - Frequency: ", ldf.noGs$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                names(list.mrna) <- c(paste("Length ",8:19," - Frequency: ", ldf$perc,"%", sep=""), "Unspecific Tetranucleotide (TCCC or CCCC)")
+                
+                ggsl.mrna.noGs <- ggseqlogo(list.mrna.noGs, ncol = ncol, method=method)
+                ggsl.mrna <- ggseqlogo(list.mrna, ncol = ncol, method=method)
+                
+                
+                plot_grid(plot_grid(criticalPlotTitle, nonCriticalPlotTitle, ncol=2), plot_grid(ggsl.mrna, ggsl.mrna.noGs, ncol=2), rel_heights = c(0.1,10), ncol=1)
+                
+                
+                require(ggplot2)
+                require(ggseqlogo)
+                ggsl.ncrna <- ggseqlogo( c(specific.matches.ncrna, list(unspecific.matches.ncrna)), ncol = ncol, method=method)
+                
+                
+                sepcific.mrna.ncrna.list <- (c(specific.matches.mrna[[ncrna]]))
+                sub.mrna.ncrna.left <- unlist(sepcific.mrna.ncrna.list)
+                sub.mrna.ncrna.left <- substring(sub.mrna.ncrna.left, first = 1, last=14)
+                sub.mrna.ncrna.right <- unlist(sepcific.mrna.ncrna.list)
+                sub.mrna.ncrna.right <- substring(sub.mrna.ncrna.right, first = nchar(sub.mrna.ncrna.right)-13, last=nchar(sub.mrna.ncrna.right))
+                sub.mrna.ncrna.unspecific <-  unspecific.matches.mrna[[ncrna]]
+                
+                sub.mrna.ncrna.left <- list(sub.mrna.ncrna.left)
+                names(sub.mrna.ncrna.left) <- "Motif Upstream"
+                sub.mrna.ncrna.right <- list(sub.mrna.ncrna.right)
+                names(sub.mrna.ncrna.right) <- "Motif Downstream"
+                sub.mrna.ncrna.unspecific <- list(sub.mrna.ncrna.unspecific)
+                names(sub.mrna.ncrna.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.ncrna.left <- ggseqlogo(sub.mrna.ncrna.left, ncol = ncol, method=method)
+                ggsl.mrna.ncrna.right <- ggseqlogo(sub.mrna.ncrna.right, ncol = ncol, method=method)
+                ggsl.mrna.ncrna.unspecific <- ggseqlogo(sub.mrna.ncrna.unspecific, ncol = ncol, method=method)
+                plot_grid(plot_grid(plot_grid(criticalPlotTitle, ggsl.mrna.ncrna.left, rel_heights = c(1,10),ncol=1), plot_grid(nonCriticalPlotTitle, ggsl.mrna.ncrna.right,rel_heights = c(1,10), ncol=1),ncol=2), plot_grid(ggsl.mrna.ncrna.unspecific), ncol=1)
+                
+
+                require(ggplot2)
+                require(ggseqlogo)
+                ggsl.ncrna <- ggseqlogo( c(specific.matches.ncrna, list(unspecific.matches.ncrna)), ncol = ncol, method=method)
+                ggsl.ncrna
+                
+                
+                sepcific.mrna.ncrna.noGs.list <- (c(specific.matches.mrna[[ncrna]]))
+                sub.mrna.ncrna.noGs.left <- unlist(sepcific.mrna.ncrna.noGs.list)
+                sub.mrna.ncrna.noGs.left <- substring(sub.mrna.ncrna.noGs.left, first = 1, last=14)
+                sub.mrna.ncrna.noGs.right <- unlist(sepcific.mrna.ncrna.noGs.list)
+                sub.mrna.ncrna.noGs.right <- substring(sub.mrna.ncrna.noGs.right, first = nchar(sub.mrna.ncrna.noGs.right)-13, last=nchar(sub.mrna.ncrna.noGs.right))
+                sub.mrna.ncrna.noGs.unspecific <-  unspecific.matches.mrna[[ncrna]]
+                
+                sub.mrna.ncrna.noGs.left <- list(sub.mrna.ncrna.noGs.left)
+                names(sub.mrna.ncrna.noGs.left) <- "Motif Upstream"
+                sub.mrna.ncrna.noGs.right <- list(sub.mrna.ncrna.noGs.right)
+                names(sub.mrna.ncrna.noGs.right) <- "Motif Downstream"
+                sub.mrna.ncrna.noGs.unspecific <- list(sub.mrna.ncrna.noGs.unspecific)
+                names(sub.mrna.ncrna.noGs.unspecific) <- "Unspecific Tetranucleotide (TCCC or CCCC) Up- and Downstream"
+                
+                ggsl.mrna.ncrna.noGs.left <- ggseqlogo(sub.mrna.ncrna.noGs.left, ncol = ncol, method=method)
+                ggsl.mrna.ncrna.noGs.right <- ggseqlogo(sub.mrna.ncrna.noGs.right, ncol = ncol, method=method)
+                ggsl.mrna.ncrna.noGs.unspecific <- ggseqlogo(sub.mrna.ncrna.noGs.unspecific, ncol = ncol, method=method)
+                
+                plot_grid(plot_grid(plot_grid(ggsl.mrna.ncrna.left, ggsl.mrna.ncrna.right,ncol=2), plot_grid(ggsl.mrna.ncrna.unspecific), ncol=1),
+                          plot_grid(plot_grid(ggsl.mrna.ncrna.noGs.left, ggsl.mrna.ncrna.noGs.right,ncol=2), plot_grid(ggsl.mrna.ncrna.noGs.unspecific), ncol=1), ncol=2)
