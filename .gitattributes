@@ -1,3 +1,0 @@
-*.html linguist-detectable=false
-*.htm linguist-detectable=false
-Reports/*.html linguist-vendored
