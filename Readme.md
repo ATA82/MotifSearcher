@@ -6,10 +6,15 @@
 HNRNPK is part of the minimally deleted region (MDR) in AML del(9q). To understand the function of hnRNP K in pathogenesis of this AML subtype, we analyzed the function of hnRNP K as an RNA binding protein in myeloid cells. Co-immunoprecipitated RNAs from hnRNP K and non-related control immunoprecipitation as well as input RNA were subjected to next generation sequencing. This analysis revealed an specific interaction of hnRNP K with 1076 RNAs, among them many mRNAs encoding transcription factors involved in myeloid differentiation and AML pathogenesis.
 
 
-## <span style="color:#000080">Installing / Getting started</span>
+## Installing / Getting started
 
 **Software requirements:**</BR>
-To run the R markdowns you need the following R-Libraries:</BR>
+
+**1. Java**
+Java 8
+
+**2. R**
+To run the R markdowns you need, besides the core installation of R 4.0, the following R-Libraries:</BR>
 1. biomaRt
 2. DT
 3. genefilter
