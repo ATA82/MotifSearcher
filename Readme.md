@@ -20,8 +20,10 @@ To run the R markdowns you need the following R-Libraries:</BR>
 9. RColorBrewer
 10. svglite
 
+## Usage instructions
+### Running Downstream analysis
 
-## Running MotifSearcher
+### Running MotifSearcher
 The first step is to take the 1076 transcripts and perform Motif matching using our MotifSearcher program. In the following,</BR>
 we print the help section of the program, describing its usage.
 
@@ -68,6 +70,8 @@ m   A list of regular expressions defining the motifs to search for.
 	  motif having a size less than 19 and all instances having a size less
 	  than 38.";
 ```
+### Running SequenceLogoGenerator script
+
 
 Here you should say what actually happens when you execute the code above.
 
