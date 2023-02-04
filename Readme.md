@@ -76,10 +76,9 @@ m   A list of regular expressions defining the motifs to search for.
 	  motif having a size less than 19 and all instances having a size less
 	  than 38.";
 ```
-### 3. Running SequenceLogoGenerator script
 
 
-Here you should say what actually happens when you execute the code above.
+
 
 
 
