@@ -84,4 +84,4 @@ m   A list of regular expressions defining the motifs to search for.
 
 ## Licensing
 
-"The code in this project is licensed under MIT license."
+"The code in this project is licensed under GNU GENERAL PUBLIC LICENSE."
